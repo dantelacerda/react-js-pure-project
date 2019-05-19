@@ -1,0 +1,146 @@
+stages:
+  - prepare
+  - build
+  - trigger
+  - deploy
+  - clearcache
+
+image: docker:stable
+
+variables:
+  DOCKER_DRIVER: overlay2
+
+services:
+- docker:dind
+
+setup:Development:
+  stage: prepare
+  environment:
+    name: development
+  tags: 
+    - shell
+  script:
+    - mkdir tmp
+    - echo $CLOUDFRONT_ID_DEV > tmp/cloudfront_id
+    - echo $AWS_ACCESS_KEY_ID > tmp/aws_access_key
+    - echo $AWS_SECRET_ACCESS_KEY > tmp/aws_secret_key
+    - echo $BUCKET_DEV > tmp/bucket
+  artifacts:
+    paths:
+      - tmp/
+  only:
+    - develop
+
+setup:Staging:
+  stage: prepare
+  environment:
+    name: staging
+  tags: 
+    - shell
+  script:
+    - mkdir tmp
+    - echo $CLOUDFRONT_ID_STG > tmp/cloudfront_id
+    - echo $AWS_ACCESS_KEY_ID > tmp/aws_access_key
+    - echo $AWS_SECRET_ACCESS_KEY > tmp/aws_secret_key
+    - echo $BUCKET_STG > tmp/bucket
+  artifacts:
+    paths:
+      - tmp/
+  only:
+    - master
+
+
+setup:Production:
+  stage: prepare
+  environment:
+    name: production
+  tags: 
+    - shell
+  script:
+    - mkdir tmp
+    - echo $CLOUDFRONT_ID_PRD > tmp/cloudfront_id
+    - echo $AWS_ACCESS_KEY_ID_PRD > tmp/aws_access_key
+    - echo $AWS_SECRET_ACCESS_KEY_PRD > tmp/aws_secret_key
+    - echo $BUCKET_PRD > tmp/bucket
+  artifacts:
+    paths:
+      - tmp/
+  only:
+    - tags
+
+Build:Development:
+  stage: build
+  tags:
+    - shell
+  environment:
+    name: development
+  script:
+    - mv src/config/env/Constants-dev.js src/config/Constants.js
+    - npm install
+    - CI=false npm run build
+  artifacts:
+    paths:
+      - build/
+      - tmp/
+  only:
+    - develop
+
+Build:Staging:
+  stage: build
+  tags:
+    - shell
+  environment:
+    name: staging
+  script:
+    - mv src/config/env/Constants-stg.js src/config/Constants.js
+    - npm install
+    - CI=false npm run build
+  artifacts:
+    paths:
+      - build/
+      - tmp/
+  only:
+    - master
+
+Build:Production:
+  stage: build
+  tags:
+    - shell
+  environment:
+    name: production
+  script:
+    - mv src/config/env/Constants-prd.js src/config/Constants.js
+    - npm install
+    - CI=false npm run build
+  artifacts:
+    paths:
+      - build/
+      - tmp/
+  only:
+    - tags
+
+Deploy:
+  stage: deploy
+  before_script:
+    - apt-get install python python-pip -y
+    - pip install awscli --upgrade
+  tags:
+    - shell
+  script:
+    - export AWS_ACCESS_KEY_ID=$(cat tmp/aws_access_key)
+    - export AWS_SECRET_ACCESS_KEY=$(cat tmp/aws_secret_key)
+    - export BUCKET=$(cat tmp/bucket)
+    - aws s3 sync build/ $BUCKET
+
+ClearCache:
+  stage: clearcache
+  before_script:
+    - apt-get install python python-pip -y
+    - pip install awscli --upgrade
+  tags:
+    - shell
+  script:
+    - export AWS_ACCESS_KEY_ID=$(cat tmp/aws_access_key)
+    - export AWS_SECRET_ACCESS_KEY=$(cat tmp/aws_secret_key)
+    - export CLOUDFRONT_ID=$(cat tmp/cloudfront_id) 
+    - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_ID --paths "/*"
